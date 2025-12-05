@@ -3,17 +3,21 @@ package com.example.tuitionmanager.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tuitionmanager.model.Repo
+import com.example.tuitionmanager.model.ResultState
 import com.example.tuitionmanager.model.data.Batch
 import com.example.tuitionmanager.model.data.Schedule
 import com.example.tuitionmanager.model.data.Student
 import com.example.tuitionmanager.model.data.Teacher
+import com.google.firebase.Timestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
 import javax.inject.Inject
@@ -21,30 +25,39 @@ import javax.inject.Inject
 /**
  * ViewModel for the Tuition Manager app.
  * Acts as the bridge between UI (Screens) and Data (Repository).
+ * Handles Loading/Error states and business logic.
  */
 @HiltViewModel
 class TuitionViewModel @Inject constructor(
     private val repo: Repo
 ) : ViewModel() {
 
-    // ==================== Exposed State Flows ====================
+    // ==================== UI State ====================
+    
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
-    // Current teacher
-    val currentTeacher: StateFlow<Teacher?> = repo.currentTeacher
+    // ==================== Teacher State ====================
+    
+    private val _currentTeacher = MutableStateFlow<Teacher?>(null)
+    val currentTeacher: StateFlow<Teacher?> = _currentTeacher.asStateFlow()
 
-    // All batches
-    val batches: StateFlow<List<Batch>> = repo.batches
+    // ==================== Batches State ====================
+    
+    private val _batches = MutableStateFlow<List<Batch>>(emptyList())
+    val batches: StateFlow<List<Batch>> = _batches.asStateFlow()
 
-    // All students
-    val students: StateFlow<List<Student>> = repo.students
+    // ==================== Students State ====================
+    
+    private val _students = MutableStateFlow<List<Student>>(emptyList())
+    val students: StateFlow<List<Student>> = _students.asStateFlow()
 
-    // Loading state
-    val isLoading: StateFlow<Boolean> = repo.isLoading
-
-    // Error state
-    val error: StateFlow<String?> = repo.error
-
-    // Currently selected month for fee management (format: "MM-YYYY")
+    // ==================== Fee Management State ====================
+    
+    // Currently selected month for fee management (format: "MM-yyyy")
     private val _selectedMonthKey = MutableStateFlow(Student.generateMonthKey())
     val selectedMonthKey: StateFlow<String> = _selectedMonthKey.asStateFlow()
 
@@ -52,18 +65,81 @@ class TuitionViewModel @Inject constructor(
 
     /**
      * Get batches scheduled for today.
+     * Derived from batches flow, filtered by current day of week.
      */
-    val todaysBatches: StateFlow<List<Batch>> = batches
-        .combine(MutableStateFlow(Unit)) { batchList, _ ->
+    val todaysBatches: StateFlow<List<Batch>> = _batches
+        .map { batchList ->
             val todayDayOfWeek = getTodayDayOfWeek()
             batchList
                 .filter { it.hasClassOnDay(todayDayOfWeek) }
                 .sortedBy { batch ->
                     val scheduleForToday = batch.getScheduleForDay(todayDayOfWeek).firstOrNull()
-                    scheduleForToday?.let { Schedule.getSortableTimeKey(it.time) } ?: Int.MAX_VALUE
+                    scheduleForToday?.time?.let { Schedule.getSortableTimeKey(it) } ?: Int.MAX_VALUE
                 }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ==================== Initialization ====================
+
+    init {
+        loadTeacher()
+        loadBatches()
+        loadStudents()
+    }
+
+    private fun loadTeacher() {
+        viewModelScope.launch {
+            repo.getCurrentTeacher().collect { result ->
+                when (result) {
+                    is ResultState.Loading -> { /* Teacher loading handled by isLoading */ }
+                    is ResultState.Success -> {
+                        _currentTeacher.value = result.data
+                    }
+                    is ResultState.Error -> {
+                        _error.value = result.error
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadBatches() {
+        viewModelScope.launch {
+            repo.getAllBatches().collect { result ->
+                when (result) {
+                    is ResultState.Loading -> {
+                        _isLoading.value = true
+                    }
+                    is ResultState.Success -> {
+                        _isLoading.value = false
+                        _batches.value = result.data
+                    }
+                    is ResultState.Error -> {
+                        _isLoading.value = false
+                        _error.value = result.error
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadStudents() {
+        viewModelScope.launch {
+            repo.getAllStudents().collect { result ->
+                when (result) {
+                    is ResultState.Loading -> { /* Handled by batches loading */ }
+                    is ResultState.Success -> {
+                        _students.value = result.data
+                    }
+                    is ResultState.Error -> {
+                        _error.value = result.error
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================== Day of Week Helper ====================
 
     /**
      * Get the day of week (1=Monday, 7=Sunday) for today.
@@ -87,10 +163,10 @@ class TuitionViewModel @Inject constructor(
     // ==================== Batch Operations ====================
 
     /**
-     * Get a batch by ID.
+     * Get a batch by ID from cached list.
      */
     fun getBatchById(batchId: String): Batch? {
-        return repo.getBatchById(batchId)
+        return _batches.value.find { it.id == batchId }
     }
 
     /**
@@ -102,14 +178,27 @@ class TuitionViewModel @Inject constructor(
         feeAmount: Double,
         schedule: List<Schedule>
     ) {
-        val batch = Batch(
-            name = name,
-            standard = standard?.takeIf { it.isNotBlank() },
-            feeAmount = feeAmount,
-            schedule = schedule,
-            creationDate = Date()
-        )
-        repo.addBatch(batch)
+        viewModelScope.launch {
+            _isLoading.value = true
+            val batch = Batch(
+                name = name,
+                standard = standard?.takeIf { it.isNotBlank() },
+                feeAmount = feeAmount,
+                schedule = schedule
+                // creationDate will be set by ServerTimestamp
+            )
+            when (val result = repo.addBatch(batch)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                    // Data will be updated via the snapshot listener
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     /**
@@ -122,54 +211,87 @@ class TuitionViewModel @Inject constructor(
         feeAmount: Double,
         schedule: List<Schedule>
     ) {
-        val existingBatch = repo.getBatchById(batchId) ?: return
-        val updatedBatch = existingBatch.copy(
-            name = name,
-            standard = standard?.takeIf { it.isNotBlank() },
-            feeAmount = feeAmount,
-            schedule = schedule
-        )
-        repo.updateBatch(updatedBatch)
+        viewModelScope.launch {
+            _isLoading.value = true
+            val existingBatch = getBatchById(batchId)
+            if (existingBatch == null) {
+                _isLoading.value = false
+                _error.value = "Batch not found"
+                return@launch
+            }
+            
+            val updatedBatch = existingBatch.copy(
+                name = name,
+                standard = standard?.takeIf { it.isNotBlank() },
+                feeAmount = feeAmount,
+                schedule = schedule
+            )
+            
+            when (val result = repo.updateBatch(updatedBatch)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     /**
-     * Delete a batch.
+     * Delete a batch (cascading delete handled in Repo).
      */
     fun deleteBatch(batchId: String) {
-        repo.deleteBatch(batchId)
+        viewModelScope.launch {
+            _isLoading.value = true
+            when (val result = repo.deleteBatch(batchId)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     /**
-     * Get student count for a batch.
+     * Get student count for a batch from cached list.
      */
     fun getStudentCountInBatch(batchId: String): Int {
-        return repo.getStudentCountInBatch(batchId)
+        return _students.value.count { it.batchId == batchId }
     }
 
     // ==================== Student Operations ====================
 
     /**
-     * Get a student by ID.
+     * Get a student by ID from cached list.
      */
     fun getStudentById(studentId: String): Student? {
-        return repo.getStudentById(studentId)
+        return _students.value.find { it.id == studentId }
     }
 
     /**
-     * Get all students in a batch.
+     * Get all students in a batch from cached list.
      */
     fun getStudentsInBatch(batchId: String): List<Student> {
-        return repo.getStudentsInBatch(batchId)
+        return _students.value.filter { it.batchId == batchId }
     }
 
     /**
      * Get students in a batch who had joined by a specific month.
      * Used for fee management - only show students who existed in that month.
+     * Logic: IF (student.joiningDate > EndOf(SelectedMonth)) THEN HideStudent()
+     * 
      * @param batchId The batch ID
      * @param monthKey Format: "MM-yyyy"
      */
     fun getStudentsForFeeMonth(batchId: String, monthKey: String): List<Student> {
-        val allStudents = repo.getStudentsInBatch(batchId)
+        val allStudents = getStudentsInBatch(batchId)
         return allStudents.filter { student ->
             // Check if student had joined by the end of the selected month
             val parsed = Student.parseMonthKey(monthKey) ?: return@filter true
@@ -186,7 +308,8 @@ class TuitionViewModel @Inject constructor(
             }
             
             // Student should have joined before or during this month
-            !student.joiningDate.after(monthEndCal.time)
+            val joiningDate = student.getJoiningDateAsDate()
+            !joiningDate.after(monthEndCal.time)
         }
     }
 
@@ -199,13 +322,25 @@ class TuitionViewModel @Inject constructor(
         batchId: String,
         joiningDate: Date = Date()
     ) {
-        val student = Student(
-            name = name,
-            phone = phone,
-            batchId = batchId,
-            joiningDate = joiningDate
-        )
-        repo.addStudent(student)
+        viewModelScope.launch {
+            _isLoading.value = true
+            val student = Student(
+                name = name,
+                phone = phone,
+                batchId = batchId,
+                joiningDate = Timestamp(joiningDate)
+            )
+            when (val result = repo.addStudent(student)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     /**
@@ -218,21 +353,52 @@ class TuitionViewModel @Inject constructor(
         batchId: String,
         joiningDate: Date
     ) {
-        val existingStudent = repo.getStudentById(studentId) ?: return
-        val updatedStudent = existingStudent.copy(
-            name = name,
-            phone = phone,
-            batchId = batchId,
-            joiningDate = joiningDate
-        )
-        repo.updateStudent(updatedStudent)
+        viewModelScope.launch {
+            _isLoading.value = true
+            val existingStudent = getStudentById(studentId)
+            if (existingStudent == null) {
+                _isLoading.value = false
+                _error.value = "Student not found"
+                return@launch
+            }
+            
+            val updatedStudent = existingStudent.copy(
+                name = name,
+                phone = phone,
+                batchId = batchId,
+                joiningDate = Timestamp(joiningDate)
+            )
+            
+            when (val result = repo.updateStudent(updatedStudent)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     /**
      * Delete a student.
      */
     fun deleteStudent(studentId: String) {
-        repo.deleteStudent(studentId)
+        viewModelScope.launch {
+            _isLoading.value = true
+            when (val result = repo.deleteStudent(studentId)) {
+                is ResultState.Success -> {
+                    _isLoading.value = false
+                }
+                is ResultState.Error -> {
+                    _isLoading.value = false
+                    _error.value = result.error
+                }
+                is ResultState.Loading -> { /* Already set */ }
+            }
+        }
     }
 
     // ==================== Fee Operations ====================
@@ -245,19 +411,45 @@ class TuitionViewModel @Inject constructor(
     }
 
     /**
+     * Generate list of valid months for fee selection.
+     * Range: from batch.creationDate to Current Month.
+     * Constraint: Users cannot select future months.
+     */
+    fun getValidMonthsForBatch(batchCreationDate: Date): List<String> {
+        val months = mutableListOf<String>()
+        val currentCal = Calendar.getInstance()
+        
+        // Start from creation month
+        val cal = Calendar.getInstance().apply { time = batchCreationDate }
+        
+        while (cal.time <= currentCal.time || 
+               (cal.get(Calendar.YEAR) == currentCal.get(Calendar.YEAR) && 
+                cal.get(Calendar.MONTH) == currentCal.get(Calendar.MONTH))) {
+            months.add(Student.generateMonthKey(cal.get(Calendar.MONTH) + 1, cal.get(Calendar.YEAR)))
+            cal.add(Calendar.MONTH, 1)
+            
+            // Safety check to avoid infinite loop (max 10 years)
+            if (months.size > 120) break
+        }
+        
+        return months
+    }
+
+    /**
      * Check if a month is within valid range (batch creation to current month).
      */
     fun isMonthInValidRange(monthKey: String, batchCreationDate: Date): Boolean {
         val parsed = Student.parseMonthKey(monthKey) ?: return false
         val currentMonthParsed = Student.parseMonthKey(Student.generateMonthKey()) ?: return false
-        val creationMonthKey = run {
-            val cal = Calendar.getInstance()
-            cal.time = batchCreationDate
-            Student.generateMonthKey(cal.get(Calendar.MONTH) + 1, cal.get(Calendar.YEAR))
-        }
+        
+        val creationCal = Calendar.getInstance().apply { time = batchCreationDate }
+        val creationMonthKey = Student.generateMonthKey(
+            creationCal.get(Calendar.MONTH) + 1, 
+            creationCal.get(Calendar.YEAR)
+        )
         val creationParsed = Student.parseMonthKey(creationMonthKey) ?: return false
 
-        // Check if month is not in the future
+        // Compare as month values (year * 12 + month)
         val monthValue = parsed.second * 12 + parsed.first
         val currentMonthValue = currentMonthParsed.second * 12 + currentMonthParsed.first
         val creationMonthValue = creationParsed.second * 12 + creationParsed.first
@@ -346,13 +538,29 @@ class TuitionViewModel @Inject constructor(
 
     /**
      * Toggle fee status for a student for the selected month.
+     * Toggle ON = Write "PAID" to Firestore.
+     * Toggle OFF = Delete Payment Key.
      */
     fun toggleFeeStatus(studentId: String, monthKey: String = _selectedMonthKey.value) {
-        val student = repo.getStudentById(studentId) ?: return
-        if (student.isFeePaidFor(monthKey)) {
-            repo.markFeeUnpaid(studentId, monthKey)
-        } else {
-            repo.markFeePaid(studentId, monthKey)
+        viewModelScope.launch {
+            val student = getStudentById(studentId)
+            if (student == null) {
+                _error.value = "Student not found"
+                return@launch
+            }
+            
+            val result = if (student.isFeePaidFor(monthKey)) {
+                repo.markFeeUnpaid(studentId, monthKey)
+            } else {
+                repo.markFeePaid(studentId, monthKey)
+            }
+            
+            when (result) {
+                is ResultState.Error -> {
+                    _error.value = result.error
+                }
+                else -> { /* Success or Loading - data updated via listener */ }
+            }
         }
     }
 
@@ -360,14 +568,28 @@ class TuitionViewModel @Inject constructor(
      * Mark fee as paid for a student.
      */
     fun markFeePaid(studentId: String, monthKey: String = _selectedMonthKey.value) {
-        repo.markFeePaid(studentId, monthKey)
+        viewModelScope.launch {
+            when (val result = repo.markFeePaid(studentId, monthKey)) {
+                is ResultState.Error -> {
+                    _error.value = result.error
+                }
+                else -> { /* Success or Loading */ }
+            }
+        }
     }
 
     /**
      * Mark fee as unpaid for a student.
      */
     fun markFeeUnpaid(studentId: String, monthKey: String = _selectedMonthKey.value) {
-        repo.markFeeUnpaid(studentId, monthKey)
+        viewModelScope.launch {
+            when (val result = repo.markFeeUnpaid(studentId, monthKey)) {
+                is ResultState.Error -> {
+                    _error.value = result.error
+                }
+                else -> { /* Success or Loading */ }
+            }
+        }
     }
 
     /**
@@ -383,37 +605,13 @@ class TuitionViewModel @Inject constructor(
      * Clear any error state.
      */
     fun clearError() {
-        repo.clearError()
+        _error.value = null
     }
 
     /**
      * Get the batch name for a student.
      */
     fun getBatchNameForStudent(student: Student): String {
-        return repo.getBatchById(student.batchId)?.name ?: "Unknown Batch"
-    }
-
-    /**
-     * Generate list of valid months for fee selection (from batch creation to current month).
-     */
-    fun getValidMonthsForBatch(batchCreationDate: Date): List<String> {
-        val months = mutableListOf<String>()
-        val currentCal = Calendar.getInstance()
-        val creationCal = Calendar.getInstance().apply { time = batchCreationDate }
-        
-        // Start from creation month
-        val cal = Calendar.getInstance().apply { time = batchCreationDate }
-        
-        while (cal.time <= currentCal.time || 
-               (cal.get(Calendar.YEAR) == currentCal.get(Calendar.YEAR) && 
-                cal.get(Calendar.MONTH) == currentCal.get(Calendar.MONTH))) {
-            months.add(Student.generateMonthKey(cal.get(Calendar.MONTH) + 1, cal.get(Calendar.YEAR)))
-            cal.add(Calendar.MONTH, 1)
-            
-            // Safety check to avoid infinite loop
-            if (months.size > 120) break // Max 10 years
-        }
-        
-        return months
+        return getBatchById(student.batchId)?.name ?: "Unknown Batch"
     }
 }

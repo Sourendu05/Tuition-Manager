@@ -5,10 +5,11 @@ import java.util.Locale
 /**
  * Represents a single schedule entry for a batch.
  * A batch can have multiple schedule entries (e.g., Mon 5 PM, Wed 6 PM).
+ * Fields are nullable for Firestore deserialization compatibility.
  */
 data class Schedule(
-    val day: Int = 1, // 1=Monday, 2=Tuesday, ..., 7=Sunday
-    val time: String = "05:00 PM" // 12hr format with AM/PM (e.g., "05:30 PM")
+    val day: Int? = 1, // 1=Monday, 2=Tuesday, ..., 7=Sunday
+    val time: String? = "05:00 PM" // 12hr format with AM/PM (e.g., "05:30 PM")
 ) {
     companion object {
         /**
@@ -101,10 +102,10 @@ data class Schedule(
     /**
      * Get a short display string for this schedule entry.
      */
-    fun getDisplayString(): String = "${getDayName(day)} $time"
+    fun getDisplayString(): String = "${day?.let { getDayName(it) } ?: "Unknown"} ${time ?: ""}"
 
     /**
      * Get a full display string for this schedule entry.
      */
-    fun getFullDisplayString(): String = "${getFullDayName(day)} at $time"
+    fun getFullDisplayString(): String = "${day?.let { getFullDayName(it) } ?: "Unknown"} at ${time ?: ""}"
 }

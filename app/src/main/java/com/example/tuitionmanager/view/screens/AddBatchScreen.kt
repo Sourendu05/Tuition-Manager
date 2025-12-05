@@ -330,7 +330,7 @@ private fun ScheduleItem(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = Schedule.getDayName(schedule.day),
+                        text = schedule.day?.let { Schedule.getDayName(it) } ?: "?",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -339,12 +339,12 @@ private fun ScheduleItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = Schedule.getFullDayName(schedule.day),
+                        text = schedule.day?.let { Schedule.getFullDayName(it) } ?: "Unknown",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = schedule.time,
+                        text = schedule.time ?: "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

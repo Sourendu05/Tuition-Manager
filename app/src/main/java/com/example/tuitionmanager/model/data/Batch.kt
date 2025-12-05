@@ -1,5 +1,8 @@
 package com.example.tuitionmanager.model.data
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
+import com.google.firebase.firestore.ServerTimestamp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -10,20 +13,25 @@ import java.util.UUID
  * Maps to Firestore: teachers/{uid}/batches/{batchId}
  */
 data class Batch(
+    @DocumentId
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
     val standard: String? = null, // Optional, e.g., "10th"
     val feeAmount: Double = 0.0,
     val schedule: List<Schedule> = emptyList(),
-    val creationDate: Date = Date() // When the batch was created
+    @ServerTimestamp
+    val creationDate: Timestamp? = null // When the batch was created
 ) {
+    // Convert Timestamp to Date for compatibility with existing code
+    fun getCreationDateAsDate(): Date = creationDate?.toDate() ?: Date()
+
     /**
      * Get a summary of schedule days for display (e.g., "Mon, Wed, Fri").
      */
     fun getScheduleSummary(): String {
         return schedule
             .sortedBy { it.day }
-            .map { Schedule.getDayName(it.day) }
+            .mapNotNull { it.day?.let { day -> Schedule.getDayName(day) } }
             .distinct()
             .joinToString(", ")
     }
@@ -42,7 +50,7 @@ data class Batch(
     fun getScheduleForDay(dayOfWeek: Int): List<Schedule> {
         return schedule
             .filter { it.day == dayOfWeek }
-            .sortedBy { Schedule.getSortableTimeKey(it.time) }
+            .sortedBy { it.time?.let { time -> Schedule.getSortableTimeKey(time) } ?: 0 }
     }
 
     /**
@@ -50,7 +58,7 @@ data class Batch(
      */
     fun getFormattedCreationDate(): String {
         val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-        return sdf.format(creationDate)
+        return sdf.format(getCreationDateAsDate())
     }
 
     /**
@@ -59,6 +67,6 @@ data class Batch(
      */
     fun getCreationMonthKey(): String {
         val sdf = SimpleDateFormat("MM-yyyy", Locale.getDefault())
-        return sdf.format(creationDate)
+        return sdf.format(getCreationDateAsDate())
     }
 }

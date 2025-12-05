@@ -1,5 +1,7 @@
 package com.example.tuitionmanager.model.data
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -11,13 +13,17 @@ import java.util.UUID
  * Maps to Firestore: teachers/{uid}/students/{studentId}
  */
 data class Student(
+    @DocumentId
     val id: String = UUID.randomUUID().toString(),
     val batchId: String = "",
     val name: String = "",
     val phone: String = "",
-    val joiningDate: Date = Date(),
+    val joiningDate: Timestamp? = null,
     val feesPaid: Map<String, FeePayment> = emptyMap() // Key: "MM-YYYY", e.g., "12-2025"
 ) {
+    // Convert Timestamp to Date for compatibility with existing code
+    fun getJoiningDateAsDate(): Date = joiningDate?.toDate() ?: Date()
+
     companion object {
         /**
          * Generate the month key for a given date.
@@ -85,7 +91,8 @@ data class Student(
      */
     fun getFormattedJoiningDate(): String {
         val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-        return sdf.format(joiningDate)
+        return sdf.format(getJoiningDateAsDate())
     }
 }
+
 

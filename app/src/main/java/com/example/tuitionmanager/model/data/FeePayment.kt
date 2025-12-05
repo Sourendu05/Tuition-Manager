@@ -1,5 +1,7 @@
 package com.example.tuitionmanager.model.data
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
 /**
@@ -8,6 +10,11 @@ import java.util.Date
  */
 data class FeePayment(
     val status: String = "PAID", // Always "PAID" when present
-    val paidAt: Date = Date()    // Server timestamp when payment was recorded
-)
+    @ServerTimestamp
+    val paidAt: Timestamp? = null // Server timestamp when payment was recorded
+) {
+    // Convert Timestamp to Date for compatibility
+    fun getPaidAtAsDate(): Date = paidAt?.toDate() ?: Date()
+}
+
 

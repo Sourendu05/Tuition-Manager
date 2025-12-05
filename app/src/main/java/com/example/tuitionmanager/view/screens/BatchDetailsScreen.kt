@@ -492,15 +492,16 @@ private fun FeesTab(
     }
     
     val monthDisplayString = Student.getMonthDisplayString(selectedMonthKey)
-    val validMonths = remember(batch.creationDate) {
-        viewModel.getValidMonthsForBatch(batch.creationDate)
+    val batchCreationDate = batch.getCreationDateAsDate()
+    val validMonths = remember(batchCreationDate) {
+        viewModel.getValidMonthsForBatch(batchCreationDate)
     }
     
     var showMonthPicker by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     
     val canGoNext = viewModel.canGoToNextMonth()
-    val canGoPrevious = viewModel.canGoToPreviousMonth(batch.creationDate)
+    val canGoPrevious = viewModel.canGoToPreviousMonth(batchCreationDate)
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Month Selector
@@ -522,7 +523,7 @@ private fun FeesTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { viewModel.goToPreviousMonth(batch.creationDate) },
+                    onClick = { viewModel.goToPreviousMonth(batchCreationDate) },
                     enabled = canGoPrevious
                 ) {
                     Icon(

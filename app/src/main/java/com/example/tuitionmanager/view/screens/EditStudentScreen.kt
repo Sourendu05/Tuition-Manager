@@ -87,7 +87,7 @@ fun EditStudentScreen(
             studentName = it.name
             phone = it.phone
             selectedBatchId = it.batchId
-            joiningDate = it.joiningDate
+            joiningDate = it.getJoiningDateAsDate()
         }
     }
 
@@ -105,7 +105,7 @@ fun EditStudentScreen(
     val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
 
     // Get the minimum date (batch creation date or earliest possible)
-    val minDateMillis = selectedBatch?.creationDate?.time ?: 0L
+    val minDateMillis = selectedBatch?.getCreationDateAsDate()?.time ?: 0L
     val maxDateMillis = System.currentTimeMillis()
 
     Scaffold(
@@ -273,8 +273,9 @@ fun EditStudentScreen(
                                     selectedBatchId = batch.id
                                     batchError = null
                                     // Adjust joining date if needed
-                                    if (joiningDate.before(batch.creationDate)) {
-                                        joiningDate = batch.creationDate
+                                    val batchCreationDate = batch.getCreationDateAsDate()
+                                    if (joiningDate.before(batchCreationDate)) {
+                                        joiningDate = batchCreationDate
                                     }
                                     showBatchDropdown = false
                                 },
@@ -352,7 +353,7 @@ fun EditStudentScreen(
                 
                 if (selectedBatch != null) {
                     Text(
-                        text = "Date must be between batch creation (${dateFormat.format(selectedBatch.creationDate)}) and today",
+                        text = "Date must be between batch creation (${dateFormat.format(selectedBatch.getCreationDateAsDate())}) and today",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 4.dp, top = 4.dp)
@@ -452,4 +453,5 @@ fun EditStudentScreen(
         }
     }
 }
+
 

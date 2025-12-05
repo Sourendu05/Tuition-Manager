@@ -82,7 +82,7 @@ fun AddStudentScreen(
     val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
 
     // Get the minimum date (batch creation date or earliest possible)
-    val minDateMillis = selectedBatch?.creationDate?.time ?: 0L
+    val minDateMillis = selectedBatch?.getCreationDateAsDate()?.time ?: 0L
     val maxDateMillis = System.currentTimeMillis()
 
     Scaffold(
@@ -257,8 +257,9 @@ fun AddStudentScreen(
                                         selectedBatchId = batch.id
                                         batchError = null
                                         // Reset joining date if it's before batch creation
-                                        if (joiningDate.before(batch.creationDate)) {
-                                            joiningDate = batch.creationDate
+                                        val batchCreationDate = batch.getCreationDateAsDate()
+                                        if (joiningDate.before(batchCreationDate)) {
+                                            joiningDate = batchCreationDate
                                         }
                                         showBatchDropdown = false
                                     },
@@ -340,7 +341,7 @@ fun AddStudentScreen(
                 
                 if (selectedBatch != null) {
                     Text(
-                        text = "Date must be between batch creation (${dateFormat.format(selectedBatch.creationDate)}) and today",
+                        text = "Date must be between batch creation (${dateFormat.format(selectedBatch.getCreationDateAsDate())}) and today",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 4.dp, top = 4.dp)
