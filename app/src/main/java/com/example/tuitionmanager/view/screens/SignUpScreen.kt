@@ -45,6 +45,8 @@ fun SignUpScreen(
     onSignUpSuccess: () -> Unit
 ) {
     val authState by authViewModel.authState.collectAsState()
+    val isEmailLoading by authViewModel.isEmailLoading.collectAsState()
+    val isGoogleLoading by authViewModel.isGoogleLoading.collectAsState()
     val isLoading by authViewModel.isLoading.collectAsState()
     val error by authViewModel.error.collectAsState()
     val verificationEmailSent by authViewModel.verificationEmailSent.collectAsState()
@@ -88,12 +90,24 @@ fun SignUpScreen(
                 )
             },
             text = {
-                Text(
-                    text = "We've sent a verification link to:\n\n$pendingEmail\n\nPlease check your inbox and click the link to verify your account, then come back to sign in."
-                )
+                Column {
+                    Text(
+                        text = "We've sent a verification link to:"
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = pendingEmail ?: "",
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Click the link in the email to verify your account, then sign in."
+                    )
+                }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         authViewModel.clearVerificationState()
                         onNavigateBack()
@@ -112,9 +126,9 @@ fun SignUpScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF0D1B2A),
-                        Color(0xFF1B263B),
-                        Color(0xFF415A77)
+                        Color(0xFF0F172A),
+                        Color(0xFF1E293B),
+                        Color(0xFF334155)
                     )
                 )
             )
@@ -137,257 +151,269 @@ fun SignUpScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.weight(0.08f))
+            // Top Section - Header
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 56.dp)
+            ) {
+                Text(
+                    text = "Create Account",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
 
-            // Header
-            Text(
-                text = "Create Account",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                letterSpacing = 0.5.sp
-            )
+                Text(
+                    text = "Start managing your tuition batches",
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            }
 
-            Text(
-                text = "Start managing your tuition batches",
-                fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.6f)
-            )
-
-            Spacer(modifier = Modifier.weight(0.06f))
-
-            // Name Field
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Full Name") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f)
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFF7CB69D),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                    focusedLabelColor = Color(0xFF7CB69D),
-                    unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
-                    cursorColor = Color(0xFF7CB69D),
-                    focusedContainerColor = Color.White.copy(alpha = 0.05f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Email Field
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Email,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f)
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFF7CB69D),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                    focusedLabelColor = Color(0xFF7CB69D),
-                    unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
-                    cursorColor = Color(0xFF7CB69D),
-                    focusedContainerColor = Color.White.copy(alpha = 0.05f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Password Field
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Password") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f)
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+            // Middle Section - Form
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Name Field
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Full Name") },
+                    leadingIcon = {
                         Icon(
-                            imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
                             tint = Color.White.copy(alpha = 0.7f)
                         )
-                    }
-                },
-                singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        focusManager.clearFocus()
-                        if (password.length >= 6) {
-                            authViewModel.signUpWithEmail(name, email, password)
-                        } else {
-                            localError = "Password must be at least 6 characters"
-                        }
-                    }
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFF7CB69D),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                    focusedLabelColor = Color(0xFF7CB69D),
-                    unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
-                    cursorColor = Color(0xFF7CB69D),
-                    focusedContainerColor = Color.White.copy(alpha = 0.05f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-            )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF10B981),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                        focusedLabelColor = Color(0xFF10B981),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
+                        cursorColor = Color(0xFF10B981),
+                        focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp)
+                )
 
-            // Password hint
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Password must be at least 6 characters",
-                color = Color.White.copy(alpha = 0.4f),
-                fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Error Message
-            val displayError = localError ?: error
-            if (displayError != null) {
                 Spacer(modifier = Modifier.height(10.dp))
+
+                // Email Field
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.7f)
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Next
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF10B981),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                        focusedLabelColor = Color(0xFF10B981),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
+                        cursorColor = Color(0xFF10B981),
+                        focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Password Field
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.7f)
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                tint = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                    },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                            if (password.length >= 6 && name.isNotBlank() && email.isNotBlank()) {
+                                authViewModel.signUpWithEmail(name, email, password)
+                            } else if (password.length < 6) {
+                                localError = "Password must be at least 6 characters"
+                            }
+                        }
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF10B981),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                        focusedLabelColor = Color(0xFF10B981),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.6f),
+                        cursorColor = Color(0xFF10B981),
+                        focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp)
+                )
+
+                // Password hint
                 Text(
-                    text = displayError,
-                    color = Color(0xFFFF6B6B),
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
+                    text = "Minimum 6 characters",
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, top = 4.dp)
                 )
-            }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Sign Up Button
-            Button(
-                onClick = {
-                    if (password.length < 6) {
-                        localError = "Password must be at least 6 characters"
-                    } else {
-                        authViewModel.signUpWithEmail(name, email, password)
+                // Error Message
+                val displayError = localError ?: error
+                if (displayError != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = displayError,
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)
+                        )
                     }
-                },
-                enabled = !isLoading && name.isNotBlank() && email.isNotBlank() && password.isNotBlank(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF7CB69D),
-                    disabledContainerColor = Color(0xFF7CB69D).copy(alpha = 0.4f)
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Sign Up Button
+                Button(
+                    onClick = {
+                        if (password.length < 6) {
+                            localError = "Password must be at least 6 characters"
+                        } else {
+                            authViewModel.signUpWithEmail(name, email, password)
+                        }
+                    },
+                    enabled = !isLoading && name.isNotBlank() && email.isNotBlank() && password.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF10B981),
+                        disabledContainerColor = Color(0xFF10B981).copy(alpha = 0.4f)
                     )
-                } else {
+                ) {
+                    if (isEmailLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Create Account",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Divider
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = Color.White.copy(alpha = 0.2f)
+                    )
                     Text(
-                        text = "Create Account",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        text = "  or  ",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 13.sp
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = Color.White.copy(alpha = 0.2f)
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // Divider
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = Color.White.copy(alpha = 0.2f)
-                )
-                Text(
-                    text = "  or  ",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 13.sp
-                )
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = Color.White.copy(alpha = 0.2f)
+                // Google Sign In Button - with its own loading state
+                GoogleSignInButton(
+                    onClick = { authViewModel.signInWithGoogle(context, webClientId) },
+                    enabled = !isLoading,
+                    isLoading = isGoogleLoading
                 )
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Google Sign In Button
-            GoogleSignInButton(
-                onClick = { authViewModel.signInWithGoogle(context, webClientId) },
-                enabled = !isLoading,
-                isLoading = isLoading
-            )
-
-            Spacer(modifier = Modifier.weight(0.12f))
-
-            // Sign In Link
+            // Bottom Section - Sign In Link
             Row(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 24.dp)
+                modifier = Modifier.padding(bottom = 32.dp)
             ) {
                 Text(
                     text = "Already have an account? ",
@@ -396,10 +422,10 @@ fun SignUpScreen(
                 )
                 Text(
                     text = "Sign In",
-                    color = Color(0xFF7CB69D),
+                    color = Color(0xFF34D399),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onNavigateBack() }
+                    modifier = Modifier.clickable(enabled = !isLoading) { onNavigateBack() }
                 )
             }
         }

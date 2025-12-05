@@ -13,12 +13,9 @@ import com.example.tuitionmanager.model.Repo
 import com.example.tuitionmanager.model.ResultState
 import com.example.tuitionmanager.model.data.Teacher
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthInvalidUserException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
-import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +40,14 @@ class AuthViewModel @Inject constructor(
     private val _currentTeacher = MutableStateFlow<Teacher?>(null)
     val currentTeacher: StateFlow<Teacher?> = _currentTeacher.asStateFlow()
 
+    // Separate loading states for email and Google buttons
+    private val _isEmailLoading = MutableStateFlow(false)
+    val isEmailLoading: StateFlow<Boolean> = _isEmailLoading.asStateFlow()
+    
+    private val _isGoogleLoading = MutableStateFlow(false)
+    val isGoogleLoading: StateFlow<Boolean> = _isGoogleLoading.asStateFlow()
+    
+    // Combined loading state for disabling UI
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -55,6 +60,13 @@ class AuthViewModel @Inject constructor(
     
     private val _pendingVerificationEmail = MutableStateFlow<String?>(null)
     val pendingVerificationEmail: StateFlow<String?> = _pendingVerificationEmail.asStateFlow()
+    
+    // OTP verification state
+    private val _otpSent = MutableStateFlow(false)
+    val otpSent: StateFlow<Boolean> = _otpSent.asStateFlow()
+    
+    private val _pendingOtpEmail = MutableStateFlow<String?>(null)
+    val pendingOtpEmail: StateFlow<String?> = _pendingOtpEmail.asStateFlow()
 
     // ==================== Initialization ====================
 
@@ -106,6 +118,7 @@ class AuthViewModel @Inject constructor(
     
     /**
      * Maps Firebase exceptions to user-friendly error messages.
+     * Messages are kept short and simple.
      */
     private fun mapAuthError(errorMessage: String): String {
         return when {
@@ -113,31 +126,34 @@ class AuthViewModel @Inject constructor(
                 "Please verify your email first"
             errorMessage.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
             errorMessage.contains("invalid", ignoreCase = true) && errorMessage.contains("credential", ignoreCase = true) ->
-                "Incorrect email or password"
+                "Wrong email or password"
             errorMessage.contains("user-not-found", ignoreCase = true) ||
             errorMessage.contains("no user record", ignoreCase = true) ->
-                "No account found with this email"
+                "Account not found"
             errorMessage.contains("wrong-password", ignoreCase = true) ->
-                "Incorrect password"
+                "Wrong password"
             errorMessage.contains("email-already-in-use", ignoreCase = true) ||
             errorMessage.contains("already exists", ignoreCase = true) ->
-                "An account with this email already exists"
+                "Email already registered"
             errorMessage.contains("weak-password", ignoreCase = true) ->
-                "Password is too weak"
+                "Password too weak"
             errorMessage.contains("invalid-email", ignoreCase = true) ||
             errorMessage.contains("badly formatted", ignoreCase = true) ->
-                "Please enter a valid email address"
+                "Invalid email format"
             errorMessage.contains("network", ignoreCase = true) ->
                 "No internet connection"
             errorMessage.contains("too-many-requests", ignoreCase = true) ->
-                "Too many attempts. Please try again later"
+                "Too many attempts. Try later"
             errorMessage.contains("No credentials available", ignoreCase = true) ||
             errorMessage.contains("NoCredentialException", ignoreCase = true) ->
-                "No Google accounts found on this device"
+                "No Google accounts found"
             errorMessage.contains("canceled", ignoreCase = true) ||
             errorMessage.contains("cancelled", ignoreCase = true) ->
-                "Sign in was cancelled"
-            else -> "Something went wrong. Please try again"
+                "Sign in cancelled"
+            errorMessage.contains("collision", ignoreCase = true) ||
+            errorMessage.contains("account-exists-with-different-credential", ignoreCase = true) ->
+                "Account exists with different sign-in method"
+            else -> "Sign in failed. Try again"
         }
     }
 
@@ -153,6 +169,7 @@ class AuthViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            _isEmailLoading.value = true
             _isLoading.value = true
             _error.value = null
 
@@ -171,6 +188,7 @@ class AuthViewModel @Inject constructor(
                 is ResultState.Loading -> { /* Already handled */ }
             }
 
+            _isEmailLoading.value = false
             _isLoading.value = false
         }
     }
@@ -191,6 +209,7 @@ class AuthViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            _isEmailLoading.value = true
             _isLoading.value = true
             _error.value = null
             _verificationEmailSent.value = false
@@ -209,6 +228,7 @@ class AuthViewModel @Inject constructor(
                 is ResultState.Loading -> { /* Already handled */ }
             }
 
+            _isEmailLoading.value = false
             _isLoading.value = false
         }
     }
@@ -219,30 +239,31 @@ class AuthViewModel @Inject constructor(
     fun clearVerificationState() {
         _verificationEmailSent.value = false
         _pendingVerificationEmail.value = null
+        _otpSent.value = false
+        _pendingOtpEmail.value = null
     }
 
     // ==================== Google Sign In ====================
 
     /**
-     * Initiate Google Sign In using Credential Manager.
-     * This should be called from a Composable with access to Context.
+     * Initiate Google Sign In using Credential Manager with Sign In With Google button flow.
+     * This provides better UX and account selection on devices.
      */
     fun signInWithGoogle(context: Context, webClientId: String) {
         viewModelScope.launch {
+            _isGoogleLoading.value = true
             _isLoading.value = true
             _error.value = null
 
             try {
                 val credentialManager = CredentialManager.create(context)
 
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(webClientId)
-                    .setAutoSelectEnabled(false)
+                // Use GetSignInWithGoogleOption for better account picker experience
+                val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(webClientId)
                     .build()
 
                 val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(googleIdOption)
+                    .addCredentialOption(signInWithGoogleOption)
                     .build()
 
                 val response = credentialManager.getCredential(
@@ -252,13 +273,45 @@ class AuthViewModel @Inject constructor(
 
                 handleGoogleSignInResponse(response)
             } catch (e: NoCredentialException) {
-                _error.value = "No Google accounts found on this device"
-                _isLoading.value = false
+                // Fallback to standard Google ID option
+                try {
+                    val credentialManager = CredentialManager.create(context)
+                    
+                    val googleIdOption = GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(false)
+                        .setServerClientId(webClientId)
+                        .setAutoSelectEnabled(false)
+                        .build()
+
+                    val request = GetCredentialRequest.Builder()
+                        .addCredentialOption(googleIdOption)
+                        .build()
+
+                    val response = credentialManager.getCredential(
+                        request = request,
+                        context = context
+                    )
+
+                    handleGoogleSignInResponse(response)
+                } catch (fallbackError: NoCredentialException) {
+                    _error.value = "No Google accounts found"
+                    _isGoogleLoading.value = false
+                    _isLoading.value = false
+                } catch (fallbackError: GetCredentialCancellationException) {
+                    _isGoogleLoading.value = false
+                    _isLoading.value = false
+                } catch (fallbackError: Exception) {
+                    _error.value = mapAuthError(fallbackError.message ?: "Google sign in failed")
+                    _isGoogleLoading.value = false
+                    _isLoading.value = false
+                }
             } catch (e: GetCredentialCancellationException) {
                 // User cancelled - don't show error
+                _isGoogleLoading.value = false
                 _isLoading.value = false
             } catch (e: Exception) {
                 _error.value = mapAuthError(e.message ?: "Google sign in failed")
+                _isGoogleLoading.value = false
                 _isLoading.value = false
             }
         }
@@ -285,17 +338,18 @@ class AuthViewModel @Inject constructor(
                             is ResultState.Loading -> { /* Already handled */ }
                         }
                     } catch (e: GoogleIdTokenParsingException) {
-                        _error.value = "Failed to sign in with Google"
+                        _error.value = "Google sign in failed"
                     }
                 } else {
-                    _error.value = "Sign in failed. Please try again"
+                    _error.value = "Sign in failed. Try again"
                 }
             }
             else -> {
-                _error.value = "Sign in failed. Please try again"
+                _error.value = "Sign in failed. Try again"
             }
         }
 
+        _isGoogleLoading.value = false
         _isLoading.value = false
     }
 
@@ -340,6 +394,8 @@ class AuthViewModel @Inject constructor(
         _authState.value = AuthState.Unauthenticated
         _verificationEmailSent.value = false
         _pendingVerificationEmail.value = null
+        _otpSent.value = false
+        _pendingOtpEmail.value = null
     }
 
     // ==================== Utility ====================

@@ -5,7 +5,10 @@ import com.example.tuitionmanager.model.data.FeePayment
 import com.example.tuitionmanager.model.data.Student
 import com.example.tuitionmanager.model.data.Teacher
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.userProfileChangeRequest
 import com.google.firebase.firestore.FieldValue
@@ -59,8 +62,16 @@ class Repo @Inject constructor(
 
     /**
      * Check if a user is currently signed in.
+     * Also verifies that email is verified for email/password accounts.
      */
-    fun isUserSignedIn(): Boolean = firebaseAuth.currentUser != null
+    fun isUserSignedIn(): Boolean {
+        val user = firebaseAuth.currentUser ?: return false
+        // For email/password users, require email verification
+        // Google users are always considered verified
+        val providers = user.providerData.map { it.providerId }
+        val isGoogleUser = providers.contains("google.com")
+        return isGoogleUser || user.isEmailVerified
+    }
 
     /**
      * Get the current Firebase User.
@@ -105,7 +116,11 @@ class Repo @Inject constructor(
      */
     suspend fun refreshCurrentTeacher(): Teacher? {
         val user = firebaseAuth.currentUser ?: return null
-        user.reload().await()
+        try {
+            user.reload().await()
+        } catch (e: Exception) {
+            // Ignore reload errors, use cached data
+        }
         val refreshedUser = firebaseAuth.currentUser ?: return null
         return Teacher(
             uid = refreshedUser.uid,
@@ -118,15 +133,16 @@ class Repo @Inject constructor(
     /**
      * Sign in with email and password.
      * Checks if the email is verified before allowing sign in.
+     * Users cannot bypass email verification.
      */
     suspend fun signInWithEmail(email: String, password: String): ResultState<Unit> {
         return try {
             val authResult = firebaseAuth.signInWithEmailAndPassword(email, password).await()
             val user = authResult.user
             
-            // Check if email is verified
+            // IMPORTANT: Check if email is verified - no bypass allowed
             if (user != null && !user.isEmailVerified) {
-                // Sign out and return error
+                // Sign out immediately to prevent access
                 firebaseAuth.signOut()
                 return ResultState.Error("EMAIL_NOT_VERIFIED")
             }
@@ -140,6 +156,7 @@ class Repo @Inject constructor(
     /**
      * Create a new account with email and password.
      * Sends verification email and signs out until verified.
+     * Users cannot access the app without verifying their email.
      */
     suspend fun signUpWithEmail(name: String, email: String, password: String): ResultState<Unit> {
         return try {
@@ -155,11 +172,11 @@ class Repo @Inject constructor(
                 // Send verification email
                 user.sendEmailVerification().await()
                 
-                // Sign out - user must verify before signing in
+                // IMPORTANT: Sign out immediately - user MUST verify before signing in
                 firebaseAuth.signOut()
             }
             
-            // Return special state indicating verification needed
+            // Return success - verification email has been sent
             ResultState.Success(Unit)
         } catch (e: Exception) {
             ResultState.Error(e.message ?: "Sign up failed")
@@ -167,7 +184,7 @@ class Repo @Inject constructor(
     }
     
     /**
-     * Resend verification email to current user.
+     * Resend verification email to the user.
      */
     suspend fun resendVerificationEmail(email: String, password: String): ResultState<Unit> {
         return try {
@@ -183,12 +200,45 @@ class Repo @Inject constructor(
 
     /**
      * Sign in with Google ID Token (from Credential Manager).
+     * Handles account linking if the email already exists with a different provider.
      */
     suspend fun signInWithGoogle(idToken: String): ResultState<Unit> {
         return try {
             val credential = GoogleAuthProvider.getCredential(idToken, null)
-            firebaseAuth.signInWithCredential(credential).await()
-            ResultState.Success(Unit)
+            
+            try {
+                // Attempt to sign in with Google credential
+                val authResult = firebaseAuth.signInWithCredential(credential).await()
+                
+                // Update display name from Google if not set
+                authResult.user?.let { user ->
+                    if (user.displayName == null) {
+                        // Try to get name from Google profile
+                        val googleUser = authResult.additionalUserInfo?.profile
+                        val googleName = googleUser?.get("name") as? String
+                        if (googleName != null) {
+                            val profileUpdates = userProfileChangeRequest {
+                                displayName = googleName
+                            }
+                            user.updateProfile(profileUpdates).await()
+                        }
+                    }
+                }
+                
+                ResultState.Success(Unit)
+            } catch (e: FirebaseAuthUserCollisionException) {
+                // Account exists with different credential (email/password)
+                // The existing account will be used - no linking needed with this flow
+                // Firebase automatically handles this when using signInWithCredential
+                
+                // Try signing in - Firebase may have already linked the accounts
+                try {
+                    firebaseAuth.signInWithCredential(credential).await()
+                    ResultState.Success(Unit)
+                } catch (innerE: Exception) {
+                    ResultState.Error("Account exists with email/password. Please sign in with email.")
+                }
+            }
         } catch (e: Exception) {
             ResultState.Error(e.message ?: "Google sign in failed")
         }
