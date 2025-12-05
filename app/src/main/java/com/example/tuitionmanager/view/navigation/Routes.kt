@@ -7,6 +7,19 @@ import kotlinx.serialization.Serializable
  * Uses Kotlin Serialization for type-safe navigation with Jetpack Navigation.
  */
 
+// ==================== Authentication Routes ====================
+
+@Serializable
+object SignInRoute
+
+@Serializable
+object SignUpRoute
+
+@Serializable
+object ProfileRoute
+
+// ==================== Main App Routes ====================
+
 @Serializable
 object DashboardRoute
 

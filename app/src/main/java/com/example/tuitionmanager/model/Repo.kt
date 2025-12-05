@@ -6,6 +6,8 @@ import com.example.tuitionmanager.model.data.Student
 import com.example.tuitionmanager.model.data.Teacher
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.userProfileChangeRequest
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -56,7 +58,18 @@ class Repo @Inject constructor(
     // ==================== Teacher/Auth Operations ====================
 
     /**
+     * Check if a user is currently signed in.
+     */
+    fun isUserSignedIn(): Boolean = firebaseAuth.currentUser != null
+
+    /**
+     * Get the current Firebase User.
+     */
+    fun getCurrentUser() = firebaseAuth.currentUser
+
+    /**
      * Get current teacher information from Firebase Auth.
+     * Forces a reload to ensure fresh data.
      */
     fun getCurrentTeacher(): Flow<ResultState<Teacher?>> = callbackFlow {
         trySend(ResultState.Loading)
@@ -64,13 +77,17 @@ class Repo @Inject constructor(
         val authListener = FirebaseAuth.AuthStateListener { auth ->
             val user = auth.currentUser
             if (user != null) {
-                val teacher = Teacher(
-                    uid = user.uid,
-                    name = user.displayName ?: "Teacher",
-                    email = user.email ?: "",
-                    photoUrl = user.photoUrl?.toString()
-                )
-                trySend(ResultState.Success(teacher))
+                // Reload user to get fresh data
+                user.reload().addOnCompleteListener {
+                    val refreshedUser = firebaseAuth.currentUser
+                    val teacher = Teacher(
+                        uid = refreshedUser?.uid ?: user.uid,
+                        name = refreshedUser?.displayName ?: user.displayName ?: "Teacher",
+                        email = refreshedUser?.email ?: user.email ?: "",
+                        photoUrl = refreshedUser?.photoUrl?.toString() ?: user.photoUrl?.toString()
+                    )
+                    trySend(ResultState.Success(teacher))
+                }
             } else {
                 trySend(ResultState.Success(null))
             }
@@ -81,6 +98,129 @@ class Repo @Inject constructor(
         awaitClose {
             firebaseAuth.removeAuthStateListener(authListener)
         }
+    }
+    
+    /**
+     * Force refresh teacher data.
+     */
+    suspend fun refreshCurrentTeacher(): Teacher? {
+        val user = firebaseAuth.currentUser ?: return null
+        user.reload().await()
+        val refreshedUser = firebaseAuth.currentUser ?: return null
+        return Teacher(
+            uid = refreshedUser.uid,
+            name = refreshedUser.displayName ?: "Teacher",
+            email = refreshedUser.email ?: "",
+            photoUrl = refreshedUser.photoUrl?.toString()
+        )
+    }
+
+    /**
+     * Sign in with email and password.
+     * Checks if the email is verified before allowing sign in.
+     */
+    suspend fun signInWithEmail(email: String, password: String): ResultState<Unit> {
+        return try {
+            val authResult = firebaseAuth.signInWithEmailAndPassword(email, password).await()
+            val user = authResult.user
+            
+            // Check if email is verified
+            if (user != null && !user.isEmailVerified) {
+                // Sign out and return error
+                firebaseAuth.signOut()
+                return ResultState.Error("EMAIL_NOT_VERIFIED")
+            }
+            
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Sign in failed")
+        }
+    }
+
+    /**
+     * Create a new account with email and password.
+     * Sends verification email and signs out until verified.
+     */
+    suspend fun signUpWithEmail(name: String, email: String, password: String): ResultState<Unit> {
+        return try {
+            val authResult = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
+            
+            // Update the user profile with their name
+            authResult.user?.let { user ->
+                val profileUpdates = userProfileChangeRequest {
+                    displayName = name
+                }
+                user.updateProfile(profileUpdates).await()
+                
+                // Send verification email
+                user.sendEmailVerification().await()
+                
+                // Sign out - user must verify before signing in
+                firebaseAuth.signOut()
+            }
+            
+            // Return special state indicating verification needed
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Sign up failed")
+        }
+    }
+    
+    /**
+     * Resend verification email to current user.
+     */
+    suspend fun resendVerificationEmail(email: String, password: String): ResultState<Unit> {
+        return try {
+            // Sign in temporarily to resend
+            val authResult = firebaseAuth.signInWithEmailAndPassword(email, password).await()
+            authResult.user?.sendEmailVerification()?.await()
+            firebaseAuth.signOut()
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Failed to resend verification")
+        }
+    }
+
+    /**
+     * Sign in with Google ID Token (from Credential Manager).
+     */
+    suspend fun signInWithGoogle(idToken: String): ResultState<Unit> {
+        return try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            firebaseAuth.signInWithCredential(credential).await()
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Google sign in failed")
+        }
+    }
+
+    /**
+     * Update the user's display name.
+     */
+    suspend fun updateUserProfile(name: String): ResultState<Unit> {
+        return try {
+            val user = firebaseAuth.currentUser
+                ?: return ResultState.Error("Not signed in")
+            
+            val profileUpdates = userProfileChangeRequest {
+                displayName = name
+            }
+            user.updateProfile(profileUpdates).await()
+            
+            // Force refresh to get updated data
+            user.reload().await()
+            
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Failed to update profile")
+        }
+    }
+
+    /**
+     * Sign out the current user.
+     */
+    fun signOut() {
+        firebaseAuth.signOut()
     }
 
     // ==================== Batch Operations ====================

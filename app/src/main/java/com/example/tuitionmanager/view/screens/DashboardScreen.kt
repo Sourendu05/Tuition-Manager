@@ -55,7 +55,8 @@ import java.util.Locale
 fun DashboardScreen(
     viewModel: TuitionViewModel,
     onBatchClick: (String) -> Unit,
-    onAddBatchClick: () -> Unit
+    onAddBatchClick: () -> Unit,
+    onProfileClick: () -> Unit = {}
 ) {
     val teacher by viewModel.currentTeacher.collectAsState()
     val batches by viewModel.batches.collectAsState()
@@ -66,6 +67,7 @@ fun DashboardScreen(
             TopAppBar(
                 title = {
                     Row(
+                        modifier = Modifier.clickable { onProfileClick() },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Profile Avatar

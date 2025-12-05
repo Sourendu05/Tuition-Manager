@@ -56,7 +56,7 @@ class TuitionViewModel @Inject constructor(
     val students: StateFlow<List<Student>> = _students.asStateFlow()
 
     // ==================== Fee Management State ====================
-    
+
     // Currently selected month for fee management (format: "MM-yyyy")
     private val _selectedMonthKey = MutableStateFlow(Student.generateMonthKey())
     val selectedMonthKey: StateFlow<String> = _selectedMonthKey.asStateFlow()
@@ -180,13 +180,13 @@ class TuitionViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             _isLoading.value = true
-            val batch = Batch(
-                name = name,
-                standard = standard?.takeIf { it.isNotBlank() },
-                feeAmount = feeAmount,
+        val batch = Batch(
+            name = name,
+            standard = standard?.takeIf { it.isNotBlank() },
+            feeAmount = feeAmount,
                 schedule = schedule
                 // creationDate will be set by ServerTimestamp
-            )
+        )
             when (val result = repo.addBatch(batch)) {
                 is ResultState.Success -> {
                     _isLoading.value = false
@@ -220,12 +220,12 @@ class TuitionViewModel @Inject constructor(
                 return@launch
             }
             
-            val updatedBatch = existingBatch.copy(
-                name = name,
-                standard = standard?.takeIf { it.isNotBlank() },
-                feeAmount = feeAmount,
-                schedule = schedule
-            )
+        val updatedBatch = existingBatch.copy(
+            name = name,
+            standard = standard?.takeIf { it.isNotBlank() },
+            feeAmount = feeAmount,
+            schedule = schedule
+        )
             
             when (val result = repo.updateBatch(updatedBatch)) {
                 is ResultState.Success -> {
@@ -324,12 +324,12 @@ class TuitionViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             _isLoading.value = true
-            val student = Student(
-                name = name,
-                phone = phone,
-                batchId = batchId,
+        val student = Student(
+            name = name,
+            phone = phone,
+            batchId = batchId,
                 joiningDate = Timestamp(joiningDate)
-            )
+        )
             when (val result = repo.addStudent(student)) {
                 is ResultState.Success -> {
                     _isLoading.value = false
@@ -362,12 +362,12 @@ class TuitionViewModel @Inject constructor(
                 return@launch
             }
             
-            val updatedStudent = existingStudent.copy(
-                name = name,
-                phone = phone,
-                batchId = batchId,
+        val updatedStudent = existingStudent.copy(
+            name = name,
+            phone = phone,
+            batchId = batchId,
                 joiningDate = Timestamp(joiningDate)
-            )
+        )
             
             when (val result = repo.updateStudent(updatedStudent)) {
                 is ResultState.Success -> {
@@ -550,9 +550,9 @@ class TuitionViewModel @Inject constructor(
             }
             
             val result = if (student.isFeePaidFor(monthKey)) {
-                repo.markFeeUnpaid(studentId, monthKey)
-            } else {
-                repo.markFeePaid(studentId, monthKey)
+            repo.markFeeUnpaid(studentId, monthKey)
+        } else {
+            repo.markFeePaid(studentId, monthKey)
             }
             
             when (result) {
