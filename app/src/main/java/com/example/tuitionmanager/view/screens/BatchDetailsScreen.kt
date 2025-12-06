@@ -658,7 +658,7 @@ private fun FeesTab(
                     FeeStudentItem(
                         student = student,
                         monthKey = selectedMonthKey,
-                        onToggleFee = { viewModel.toggleFeeStatus(student.id, selectedMonthKey) }
+                        onFeeStatusChange = { isPaid -> viewModel.setFeeStatus(student.id, selectedMonthKey, isPaid) }
                     )
                 }
             }
@@ -742,7 +742,7 @@ private fun FeesTab(
 private fun FeeStudentItem(
     student: Student,
     monthKey: String,
-    onToggleFee: () -> Unit
+    onFeeStatusChange: (Boolean) -> Unit
 ) {
     val isPaid = student.isFeePaidFor(monthKey)
     val backgroundColor by animateColorAsState(
@@ -775,10 +775,10 @@ private fun FeeStudentItem(
                 modifier = Modifier.weight(1f)
             )
             
-            // Toggle Switch
+            // Toggle Switch - passes the new checked state directly
             Switch(
                 checked = isPaid,
-                onCheckedChange = { onToggleFee() },
+                onCheckedChange = { isChecked -> onFeeStatusChange(isChecked) },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
                     checkedTrackColor = Color(0xFF4CAF50),

@@ -130,7 +130,7 @@ fun StudentDetailsScreen(
             FeeStatusCard(
                 isPaid = isCurrentMonthPaid,
                 monthKey = currentMonthKey,
-                onToggle = { viewModel.toggleFeeStatus(studentId, currentMonthKey) }
+                onSetPaid = { setPaid -> viewModel.setFeeStatus(studentId, currentMonthKey, setPaid) }
             )
 
             // Details Card
@@ -261,7 +261,7 @@ private fun ProfileHeader(student: Student) {
 private fun FeeStatusCard(
     isPaid: Boolean,
     monthKey: String,
-    onToggle: () -> Unit
+    onSetPaid: (Boolean) -> Unit
 ) {
     val backgroundColor = if (isPaid) Color(0xFF4CAF50) else Color(0xFFF44336)
     val monthDisplay = Student.getMonthDisplayString(monthKey)
@@ -269,7 +269,7 @@ private fun FeeStatusCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle),
+            .clickable(onClick = { onSetPaid(!isPaid) }),
         colors = CardDefaults.cardColors(
             containerColor = backgroundColor
         ),

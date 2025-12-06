@@ -36,6 +36,7 @@ import com.example.tuitionmanager.R
 import com.example.tuitionmanager.view.components.GoogleSignInButton
 import com.example.tuitionmanager.viewmodel.AuthState
 import com.example.tuitionmanager.viewmodel.AuthViewModel
+import androidx.compose.material.icons.filled.HelpOutline
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,10 +62,12 @@ fun SignUpScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
+    var showPasswordHint by remember { mutableStateOf(false) }
 
-    // Navigate on successful authentication (for Google Sign-In)
-    LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated) {
+    // Navigate on successful authentication (for Google Sign-In only)
+    // Email sign-up shows verification dialog first, so don't navigate then
+    LaunchedEffect(authState, verificationEmailSent) {
+        if (authState is AuthState.Authenticated && !verificationEmailSent) {
             authViewModel.clearVerificationState()
             onSignUpSuccess()
         }
@@ -104,6 +107,12 @@ fun SignUpScreen(
                     Text(
                         text = "Click the link in the email to verify your account, then sign in."
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "⚠️ Check Spam/Junk folder if not found in inbox.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
@@ -114,6 +123,33 @@ fun SignUpScreen(
                     }
                 ) {
                     Text("Go to Sign In")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    }
+    
+    // Password Requirements Dialog
+    if (showPasswordHint) {
+        AlertDialog(
+            onDismissRequest = { showPasswordHint = false },
+            title = {
+                Text(
+                    text = "Password Requirements",
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text("• Minimum 6 characters")
+                    Text("• At least 1 uppercase letter (A-Z)")
+                    Text("• At least 1 lowercase letter (a-z)")
+                    Text("• At least 1 number (0-9)")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPasswordHint = false }) {
+                    Text("Got it")
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface
@@ -211,9 +247,7 @@ fun SignUpScreen(
                         unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -250,9 +284,7 @@ fun SignUpScreen(
                         unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -306,20 +338,34 @@ fun SignUpScreen(
                         unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
                     ),
                     shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                // Password Requirements Hint
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(58.dp)
-                )
-
-                // Password hint
-                Text(
-                    text = "Minimum 6 characters",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 4.dp, top = 4.dp)
-                )
+                        .padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showPasswordHint = true },
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Password requirements",
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Min 6 chars, 1 uppercase, 1 lowercase, 1 number",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp
+                    )
+                }
 
                 // Error Message
                 val displayError = localError ?: error

@@ -53,6 +53,10 @@ fun SignInScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var showForgotPasswordDialog by remember { mutableStateOf(false) }
+    var forgotPasswordEmail by remember { mutableStateOf("") }
+    
+    val passwordResetSent by authViewModel.passwordResetSent.collectAsState()
 
     // Navigate on successful authentication
     LaunchedEffect(authState) {
@@ -64,6 +68,103 @@ fun SignInScreen(
     // Clear error when user starts typing
     LaunchedEffect(email, password) {
         authViewModel.clearError()
+    }
+    
+    // Forgot Password Dialog
+    if (showForgotPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { 
+                showForgotPasswordDialog = false
+                authViewModel.clearError()
+            },
+            title = {
+                Text(
+                    text = "Reset Password",
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text("Enter your email address and we'll send you a link to reset your password.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = forgotPasswordEmail,
+                        onValueChange = { forgotPasswordEmail = it },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        authViewModel.resetPassword(forgotPasswordEmail)
+                    },
+                    enabled = forgotPasswordEmail.isNotBlank() && !isLoading
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                    } else {
+                        Text("Send Reset Link")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showForgotPasswordDialog = false
+                    authViewModel.clearError()
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Password Reset Success Dialog
+    if (passwordResetSent) {
+        AlertDialog(
+            onDismissRequest = { 
+                authViewModel.clearPasswordResetState()
+                showForgotPasswordDialog = false
+            },
+            title = {
+                Text(
+                    text = "Email Sent!",
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text("Password reset link sent to:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = forgotPasswordEmail,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "⚠️ Check Spam/Junk folder if not found.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { 
+                    authViewModel.clearPasswordResetState()
+                    showForgotPasswordDialog = false
+                }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     Box(
@@ -159,9 +260,7 @@ fun SignInScreen(
                         unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -213,9 +312,7 @@ fun SignInScreen(
                         unfocusedContainerColor = Color.White.copy(alpha = 0.03f)
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 // Error Message
@@ -236,7 +333,25 @@ fun SignInScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                // Forgot Password Link
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = "Forgot Password?",
+                        color = Color(0xFF60A5FA),
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable(enabled = !isLoading) {
+                                forgotPasswordEmail = email
+                                showForgotPasswordDialog = true
+                            }
+                            .padding(vertical = 8.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Sign In Button
                 Button(

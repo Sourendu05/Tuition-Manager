@@ -67,6 +67,10 @@ class AuthViewModel @Inject constructor(
     
     private val _pendingOtpEmail = MutableStateFlow<String?>(null)
     val pendingOtpEmail: StateFlow<String?> = _pendingOtpEmail.asStateFlow()
+    
+    // Password reset state
+    private val _passwordResetSent = MutableStateFlow(false)
+    val passwordResetSent: StateFlow<Boolean> = _passwordResetSent.asStateFlow()
 
     // ==================== Initialization ====================
 
@@ -90,11 +94,16 @@ class AuthViewModel @Inject constructor(
                     is ResultState.Success -> {
                         _currentTeacher.value = result.data
                         if (result.data != null) {
+                            // Only authenticate if teacher data is returned
+                            // (Repo already verified email/Google status)
                             _authState.value = AuthState.Authenticated
+                        } else {
+                            // Null teacher means user is not verified or not signed in
+                            _authState.value = AuthState.Unauthenticated
                         }
                     }
                     is ResultState.Error -> {
-                        // Don't show error for teacher loading
+                        // On error, stay in current state
                     }
                     is ResultState.Loading -> { /* Loading handled separately */ }
                 }
@@ -204,7 +213,22 @@ class AuthViewModel @Inject constructor(
         }
 
         if (password.length < 6) {
-            _error.value = "Password must be at least 6 characters"
+            _error.value = "Password needs at least 6 characters"
+            return
+        }
+        
+        if (!password.any { it.isUpperCase() }) {
+            _error.value = "Password needs 1 uppercase letter"
+            return
+        }
+        
+        if (!password.any { it.isLowerCase() }) {
+            _error.value = "Password needs 1 lowercase letter"
+            return
+        }
+        
+        if (!password.any { it.isDigit() }) {
+            _error.value = "Password needs 1 number"
             return
         }
 
@@ -383,6 +407,43 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    // ==================== Password Reset ====================
+    
+    /**
+     * Send password reset email.
+     */
+    fun resetPassword(email: String) {
+        if (email.isBlank()) {
+            _error.value = "Please enter your email"
+            return
+        }
+        
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            _passwordResetSent.value = false
+            
+            when (val result = repo.sendPasswordResetEmail(email)) {
+                is ResultState.Success -> {
+                    _passwordResetSent.value = true
+                }
+                is ResultState.Error -> {
+                    _error.value = mapAuthError(result.error)
+                }
+                is ResultState.Loading -> { /* Already handled */ }
+            }
+            
+            _isLoading.value = false
+        }
+    }
+    
+    /**
+     * Clear password reset sent state.
+     */
+    fun clearPasswordResetState() {
+        _passwordResetSent.value = false
+    }
+
     // ==================== Sign Out ====================
 
     /**
@@ -396,6 +457,7 @@ class AuthViewModel @Inject constructor(
         _pendingVerificationEmail.value = null
         _otpSent.value = false
         _pendingOtpEmail.value = null
+        _passwordResetSent.value = false
     }
 
     // ==================== Utility ====================

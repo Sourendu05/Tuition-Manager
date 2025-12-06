@@ -80,11 +80,12 @@ class TuitionViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ==================== Initialization ====================
+    
+    // Track if data listeners are active
+    private var dataListenersActive = false
 
     init {
         loadTeacher()
-        loadBatches()
-        loadStudents()
     }
 
     private fun loadTeacher() {
@@ -93,7 +94,22 @@ class TuitionViewModel @Inject constructor(
                 when (result) {
                     is ResultState.Loading -> { /* Teacher loading handled by isLoading */ }
                     is ResultState.Success -> {
+                        val previousTeacher = _currentTeacher.value
                         _currentTeacher.value = result.data
+                        
+                        // When teacher becomes available (user signs in), start data listeners
+                        if (result.data != null && previousTeacher == null && !dataListenersActive) {
+                            dataListenersActive = true
+                            loadBatches()
+                            loadStudents()
+                        }
+                        
+                        // When teacher becomes null (user signs out), clear data
+                        if (result.data == null) {
+                            dataListenersActive = false
+                            _batches.value = emptyList()
+                            _students.value = emptyList()
+                        }
                     }
                     is ResultState.Error -> {
                         _error.value = result.error
@@ -537,22 +553,18 @@ class TuitionViewModel @Inject constructor(
     }
 
     /**
-     * Toggle fee status for a student for the selected month.
-     * Toggle ON = Write "PAID" to Firestore.
-     * Toggle OFF = Delete Payment Key.
+     * Set fee status for a student for the selected month.
+     * Uses explicit state to avoid race conditions from stale cache.
+     * @param studentId The student's ID
+     * @param monthKey The month key (format: "MM-yyyy")
+     * @param isPaid True to mark as paid, false to mark as unpaid
      */
-    fun toggleFeeStatus(studentId: String, monthKey: String = _selectedMonthKey.value) {
+    fun setFeeStatus(studentId: String, monthKey: String = _selectedMonthKey.value, isPaid: Boolean) {
         viewModelScope.launch {
-            val student = getStudentById(studentId)
-            if (student == null) {
-                _error.value = "Student not found"
-                return@launch
-            }
-            
-            val result = if (student.isFeePaidFor(monthKey)) {
-            repo.markFeeUnpaid(studentId, monthKey)
-        } else {
-            repo.markFeePaid(studentId, monthKey)
+            val result = if (isPaid) {
+                repo.markFeePaid(studentId, monthKey)
+            } else {
+                repo.markFeeUnpaid(studentId, monthKey)
             }
             
             when (result) {

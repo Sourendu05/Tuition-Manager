@@ -57,6 +57,14 @@ class Repo @Inject constructor(
     private fun studentsCollection() = currentUid?.let {
         firestore.collection("teachers").document(it).collection("students")
     }
+    
+    /**
+     * Get the teacher document reference for the current user.
+     * This stores the user's profile (name, email, photoUrl) in Firestore.
+     */
+    private fun teacherDocument() = currentUid?.let {
+        firestore.collection("teachers").document(it)
+    }
 
     // ==================== Teacher/Auth Operations ====================
 
@@ -79,25 +87,77 @@ class Repo @Inject constructor(
     fun getCurrentUser() = firebaseAuth.currentUser
 
     /**
-     * Get current teacher information from Firebase Auth.
-     * Forces a reload to ensure fresh data.
+     * Get current teacher information from Firestore.
+     * Uses Firestore as Single Source of Truth for profile data.
+     * IMPORTANT: Only returns teacher for verified users (email verified OR Google sign-in).
+     * Unverified email users are signed out to prevent unauthorized access.
      */
     fun getCurrentTeacher(): Flow<ResultState<Teacher?>> = callbackFlow {
         trySend(ResultState.Loading)
         
+        var firestoreListener: com.google.firebase.firestore.ListenerRegistration? = null
+        
         val authListener = FirebaseAuth.AuthStateListener { auth ->
             val user = auth.currentUser
+            
+            // Remove previous Firestore listener if any
+            firestoreListener?.remove()
+            
             if (user != null) {
-                // Reload user to get fresh data
-                user.reload().addOnCompleteListener {
+                // Reload user to get fresh verification status
+                user.reload().addOnCompleteListener { _ ->
                     val refreshedUser = firebaseAuth.currentUser
-                    val teacher = Teacher(
-                        uid = refreshedUser?.uid ?: user.uid,
-                        name = refreshedUser?.displayName ?: user.displayName ?: "Teacher",
-                        email = refreshedUser?.email ?: user.email ?: "",
-                        photoUrl = refreshedUser?.photoUrl?.toString() ?: user.photoUrl?.toString()
-                    )
-                    trySend(ResultState.Success(teacher))
+                    
+                    if (refreshedUser != null) {
+                        // Check if user is properly validated
+                        val providers = refreshedUser.providerData.map { it.providerId }
+                        val isGoogleUser = providers.contains("google.com")
+                        val isVerified = isGoogleUser || refreshedUser.isEmailVerified
+                        
+                        if (isVerified) {
+                            // User is verified - listen to Firestore for teacher data
+                            val teacherDoc = firestore.collection("teachers").document(refreshedUser.uid)
+                            firestoreListener = teacherDoc.addSnapshotListener { snapshot, error ->
+                                if (error != null) {
+                                    // Fallback to Auth profile on error
+                                    val teacher = Teacher(
+                                        uid = refreshedUser.uid,
+                                        name = refreshedUser.displayName ?: "Teacher",
+                                        email = refreshedUser.email ?: "",
+                                        photoUrl = refreshedUser.photoUrl?.toString()
+                                    )
+                                    trySend(ResultState.Success(teacher))
+                                    return@addSnapshotListener
+                                }
+                                
+                                if (snapshot != null && snapshot.exists()) {
+                                    // Use Firestore data
+                                    val teacher = Teacher(
+                                        uid = refreshedUser.uid,
+                                        name = snapshot.getString("name") ?: refreshedUser.displayName ?: "Teacher",
+                                        email = snapshot.getString("email") ?: refreshedUser.email ?: "",
+                                        photoUrl = snapshot.getString("photoUrl") ?: refreshedUser.photoUrl?.toString()
+                                    )
+                                    trySend(ResultState.Success(teacher))
+                                } else {
+                                    // Firestore doc doesn't exist yet, use Auth profile
+                                    val teacher = Teacher(
+                                        uid = refreshedUser.uid,
+                                        name = refreshedUser.displayName ?: "Teacher",
+                                        email = refreshedUser.email ?: "",
+                                        photoUrl = refreshedUser.photoUrl?.toString()
+                                    )
+                                    trySend(ResultState.Success(teacher))
+                                }
+                            }
+                        } else {
+                            // User exists but email NOT verified - sign out and return null
+                            firebaseAuth.signOut()
+                            trySend(ResultState.Success(null))
+                        }
+                    } else {
+                        trySend(ResultState.Success(null))
+                    }
                 }
             } else {
                 trySend(ResultState.Success(null))
@@ -107,12 +167,14 @@ class Repo @Inject constructor(
         firebaseAuth.addAuthStateListener(authListener)
         
         awaitClose {
+            firestoreListener?.remove()
             firebaseAuth.removeAuthStateListener(authListener)
         }
     }
     
     /**
      * Force refresh teacher data.
+     * Returns null if user is not verified (email/password without verification).
      */
     suspend fun refreshCurrentTeacher(): Teacher? {
         val user = firebaseAuth.currentUser ?: return null
@@ -122,6 +184,17 @@ class Repo @Inject constructor(
             // Ignore reload errors, use cached data
         }
         val refreshedUser = firebaseAuth.currentUser ?: return null
+        
+        // Check if user is properly validated
+        val providers = refreshedUser.providerData.map { it.providerId }
+        val isGoogleUser = providers.contains("google.com")
+        val isVerified = isGoogleUser || refreshedUser.isEmailVerified
+        
+        if (!isVerified) {
+            // User not verified - don't return teacher data
+            return null
+        }
+        
         return Teacher(
             uid = refreshedUser.uid,
             name = refreshedUser.displayName ?: "Teacher",
@@ -156,7 +229,7 @@ class Repo @Inject constructor(
     /**
      * Create a new account with email and password.
      * Sends verification email and signs out until verified.
-     * Users cannot access the app without verifying their email.
+     * Saves profile to Firestore for consistency.
      */
     suspend fun signUpWithEmail(name: String, email: String, password: String): ResultState<Unit> {
         return try {
@@ -169,7 +242,21 @@ class Repo @Inject constructor(
                 }
                 user.updateProfile(profileUpdates).await()
                 
-                // Send verification email
+                // Try to save profile to Firestore (non-blocking - don't fail signup if this fails)
+                try {
+                    val teacherData = hashMapOf(
+                        "name" to name,
+                        "email" to email,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    firestore.collection("teachers").document(user.uid)
+                        .set(teacherData, SetOptions.merge()).await()
+                } catch (firestoreError: Exception) {
+                    // Log but don't fail - Firestore doc will be created on first successful login
+                    android.util.Log.w("Repo", "Firestore profile save failed: ${firestoreError.message}")
+                }
+                
+                // Send verification email - MUST succeed for signup to complete
                 user.sendEmailVerification().await()
                 
                 // IMPORTANT: Sign out immediately - user MUST verify before signing in
@@ -180,6 +267,18 @@ class Repo @Inject constructor(
             ResultState.Success(Unit)
         } catch (e: Exception) {
             ResultState.Error(e.message ?: "Sign up failed")
+        }
+    }
+    
+    /**
+     * Send password reset email.
+     */
+    suspend fun sendPasswordResetEmail(email: String): ResultState<Unit> {
+        return try {
+            firebaseAuth.sendPasswordResetEmail(email).await()
+            ResultState.Success(Unit)
+        } catch (e: Exception) {
+            ResultState.Error(e.message ?: "Failed to send reset email")
         }
     }
     
@@ -201,6 +300,7 @@ class Repo @Inject constructor(
     /**
      * Sign in with Google ID Token (from Credential Manager).
      * Handles account linking if the email already exists with a different provider.
+     * Preserves existing Firestore profile name if available.
      */
     suspend fun signInWithGoogle(idToken: String): ResultState<Unit> {
         return try {
@@ -210,28 +310,31 @@ class Repo @Inject constructor(
                 // Attempt to sign in with Google credential
                 val authResult = firebaseAuth.signInWithCredential(credential).await()
                 
-                // Update display name from Google if not set
                 authResult.user?.let { user ->
-                    if (user.displayName == null) {
-                        // Try to get name from Google profile
+                    // Check if Firestore profile already exists (from previous email signup)
+                    val existingDoc = firestore.collection("teachers").document(user.uid).get().await()
+                    
+                    if (!existingDoc.exists()) {
+                        // No existing profile - create one with Google data
                         val googleUser = authResult.additionalUserInfo?.profile
-                        val googleName = googleUser?.get("name") as? String
-                        if (googleName != null) {
-                            val profileUpdates = userProfileChangeRequest {
-                                displayName = googleName
-                            }
-                            user.updateProfile(profileUpdates).await()
-                        }
+                        val googleName = googleUser?.get("name") as? String ?: user.displayName ?: "Teacher"
+                        val googlePhoto = user.photoUrl?.toString()
+                        
+                        val teacherData = hashMapOf(
+                            "name" to googleName,
+                            "email" to (user.email ?: ""),
+                            "photoUrl" to googlePhoto,
+                            "createdAt" to FieldValue.serverTimestamp()
+                        )
+                        firestore.collection("teachers").document(user.uid)
+                            .set(teacherData, SetOptions.merge()).await()
                     }
+                    // If profile exists, keep the existing name (from email signup)
                 }
                 
                 ResultState.Success(Unit)
             } catch (e: FirebaseAuthUserCollisionException) {
-                // Account exists with different credential (email/password)
-                // The existing account will be used - no linking needed with this flow
-                // Firebase automatically handles this when using signInWithCredential
-                
-                // Try signing in - Firebase may have already linked the accounts
+                // Account exists with different credential
                 try {
                     firebaseAuth.signInWithCredential(credential).await()
                     ResultState.Success(Unit)
@@ -245,20 +348,26 @@ class Repo @Inject constructor(
     }
 
     /**
-     * Update the user's display name.
+     * Update the user's display name in both Auth and Firestore.
      */
     suspend fun updateUserProfile(name: String): ResultState<Unit> {
         return try {
             val user = firebaseAuth.currentUser
                 ?: return ResultState.Error("Not signed in")
             
+            // Update Auth profile
             val profileUpdates = userProfileChangeRequest {
                 displayName = name
             }
             user.updateProfile(profileUpdates).await()
             
-            // Force refresh to get updated data
-            user.reload().await()
+            // Update Firestore profile (Single Source of Truth)
+            val teacherData = hashMapOf<String, Any>(
+                "name" to name,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("teachers").document(user.uid)
+                .set(teacherData, SetOptions.merge()).await()
             
             ResultState.Success(Unit)
         } catch (e: Exception) {
@@ -613,34 +722,6 @@ class Repo @Inject constructor(
             ResultState.Success(Unit)
         } catch (e: Exception) {
             ResultState.Error(e.message ?: "Failed to mark fee as unpaid")
-        }
-    }
-
-    /**
-     * Toggle fee status for a student.
-     * If paid, mark as unpaid. If unpaid, mark as paid.
-     */
-    suspend fun toggleFeeStatus(studentId: String, monthKey: String): ResultState<Unit> {
-        return try {
-            val studentResult = getStudentById(studentId)
-            when (studentResult) {
-                is ResultState.Success -> {
-                    val student = studentResult.data
-                    if (student != null) {
-                        if (student.isFeePaidFor(monthKey)) {
-                            markFeeUnpaid(studentId, monthKey)
-                        } else {
-                            markFeePaid(studentId, monthKey)
-                        }
-                    } else {
-                        ResultState.Error("Student not found")
-                    }
-                }
-                is ResultState.Error -> ResultState.Error(studentResult.error)
-                is ResultState.Loading -> ResultState.Loading
-            }
-        } catch (e: Exception) {
-            ResultState.Error(e.message ?: "Failed to toggle fee status")
         }
     }
 }
